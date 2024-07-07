@@ -318,7 +318,9 @@
                         <v-select
                           v-model="fan.id"
                           :items="availableFansFor(fan)"
-                          :item-text="item.name ?? `Fan ${item.id}`"
+                          :item-text="
+                            (fan) => fan.item.name ?? `Fan ${fan.item.id}`
+                          "
                           item-value="id"
                           label="Select Fan"
                           class="pt-0"
