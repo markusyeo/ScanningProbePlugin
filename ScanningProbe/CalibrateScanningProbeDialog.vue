@@ -317,8 +317,8 @@
                       <td class="pl-0">
                         <v-select
                           v-model="fan.id"
-                          :items="availableFansFor(fan.id)"
-                          item-text="name"
+                          :items="availableFansFor(fan)"
+                          :item-text="item.name ?? `Fan ${item.id}`"
                           item-value="id"
                           label="Select Fan"
                           class="pt-0"
@@ -850,16 +850,17 @@ export default {
     getAvailableItems(allItems, selectedIds) {
       return allItems
         .map((item, index) => ({
-          ...item,
+          item,
           id: index,
         }))
-        .filter((item) => !selectedIds.includes(item.id));
+        .filter((item) => item.item !== null && !selectedIds.includes(item.id));
     },
     availableFans() {
       const selectedFanIds = this.calibrationParams.fans.map((fan) => fan.id);
       return this.getAvailableItems(this.fans, selectedFanIds);
     },
-    availableFansFor(fanId) {
+    availableFansFor(fan) {
+      const fanId = fan.id;
       const selectedFanIds = this.availableFans().filter((id) => id != fanId);
       return this.getAvailableItems(this.fans, selectedFanIds);
     },
