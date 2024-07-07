@@ -550,6 +550,10 @@
 import { MachineStatus } from "@duet3d/objectmodel";
 import { mapActions, mapState } from "vuex";
 
+const HEATING = "heating";
+const SOAK = "soaking";
+const COMPLETED = "completed";
+
 export default {
   props: {
     shown: {
@@ -812,13 +816,6 @@ export default {
   },
   methods: {
     ...mapActions("machine", ["sendCode"]),
-    async doCode(code) {
-      const reply = await this.sendCode(code);
-      console.log(reply);
-      if (reply.indexOf("Error") === 0) {
-        throw new Error(`Code ${code} failed: ${reply}`);
-      }
-    },
     //
     // Initialization methods
     //
@@ -836,10 +833,6 @@ export default {
       if (this.bedHeaters.length === 1) {
         this.calibrationParams.selectedBedHeater = this.bedHeaters[0];
       }
-
-      //
-      this.calibrationParams.selectedThermistor =
-        this.thermistors[3].thermistor;
       this.initialiseCalibrationProgress();
     },
     //
@@ -913,16 +906,16 @@ export default {
     // Machine Operations
     //
     async homeMachine() {
-      await this.doCode("G28");
+      await this.sendCode("G28");
     },
     async setBedHeater(temp) {
-      await this.doCode(`M140 S${temp}`);
+      await this.sendCode(`M140 S${temp}`);
     },
     async disableBedHeater() {
       await this.setBedHeater(-273.1);
     },
     async setChamberHeater(temp) {
-      await this.doCode(`M141 S${temp}`);
+      await this.sendCode(`M141 S${temp}`);
     },
     async disableChamberHeater() {
       await this.setChamberHeater(-273.1);
@@ -943,7 +936,7 @@ export default {
       await this.setChamberHeater(targetChamberTemp);
     },
     async setFan(fanId, speed) {
-      await this.doCode(`M106 P${fanId} S${speed}`);
+      await this.sendCode(`M106 P${fanId} S${speed}`);
     },
     async disableFan(fanId) {
       await this.setFan(fanId, 0);
@@ -1014,8 +1007,8 @@ export default {
     async startCalibration() {
       this.calibrationStarted = true;
       await this.doM558_1();
-      this.recordProbeSettings();
       await this.setToolToTriggerHeight();
+      this.recordProbeSettings();
       await this.startMeasurement();
     },
     async awaitBusy(milliseconds = 1000) {
@@ -1027,13 +1020,13 @@ export default {
       const probeId = this.selectedScanningProbe.id;
       const m558_1_S_Value = 0.5;
       const m558_1Command = `M558.1 K${probeId} S${m558_1_S_Value}`;
-      await this.doCode(m558_1Command);
+      await this.sendCode(m558_1Command);
       await this.awaitBusy();
       this.m558_1Executed = true;
     },
     async doG1(toolId, zValue) {
       const g1Command = `G1 P${toolId} Z${zValue}`;
-      await this.doCode(g1Command);
+      await this.sendCode(g1Command);
       await this.awaitBusy();
     },
     recordProbeSettings() {
@@ -1062,36 +1055,40 @@ export default {
       const toolId = this.selectedTool.id;
       const probeTriggerHeight = this.selectedScanningProbe.triggerHeight;
       await this.doG1(toolId, probeTriggerHeight);
+      await this.awaitBusy();
     },
     async startMeasurement() {
       const temps = this.calibrationProgress.values.map(
         (item) => item.targetTemp
       );
       await this.enableFans();
+      this.calibrationProgress.startTime = Date.now();
 
       for (let i = 0; i < temps.length; i++) {
+        const temp = temps[i];
+        if (this.getBedHeaterTemp > temp + 1) {
+          this.setCalibrationStatus(i, COMPLETED);
+          continue;
+        }
+        this.setCalibrationStatus(i, HEATING);
+        await this.waitForStabilization(temp);
+
+        this.setCalibrationStatus(i, SOAK);
+        await this.soakAtTemp();
+
+        this.setCalibrationStatus(i, COMPLETED);
+
         if (this.calibrationCancelled) {
           this.cleanUp();
           return;
         }
-        const temp = temps[i];
-        if (this.getBedHeaterTemp > temp + 1) {
-          this.setCalibrationStatus(i, "completed");
-          continue;
-        }
-        this.calibrationProgress.startTime = Date.now();
-        this.setCalibrationStatus(i, "heating");
-        await this.setBedHeater(temp);
-        await this.waitForStabilization(temp, i);
-        await this.soakAtTemp(i);
-        this.setCalibrationStatus(i, true);
       }
       await this.finishMeasurement();
     },
     setCalibrationStatus(index, status) {
       this.calibrationProgress.values[index].status = status;
     },
-    async updateProgressLoop(i) {
+    async updateProgressLoop() {
       this.updateTimeElapsed();
       await this.recordProbeValue();
       await this.delay(1000);
@@ -1109,18 +1106,18 @@ export default {
       const currentTemp = this.getBedHeaterTemp;
       return Math.abs(currentTemp - targetTemp) < 1;
     },
-    async waitForStabilization(targetTemp, i) {
+    async waitForStabilization(targetTemp) {
+      await this.setBedHeater(targetTemp);
       while (!this.isTemperatureStable(targetTemp)) {
         if (this.calibrationCancelled) {
           this.cleanUp();
           break;
         }
-        await this.updateProgressLoop(i);
+        await this.updateProgressLoop();
       }
     },
-    async soakAtTemp(i, duration = 300000) {
+    async soakAtTemp(duration = 300000) {
       // Default soak duration is 5 minutes
-      this.setCalibrationStatus(i, "soaking");
       const soakStartTime = Date.now();
       await this.delay(1000);
       while (duration > Date.now() - soakStartTime) {
@@ -1128,10 +1125,9 @@ export default {
           this.cleanUp();
           break;
         }
-        await this.updateProgressLoop(i);
+        await this.updateProgressLoop();
       }
     },
-
     async cleanUp() {
       await this.disableBedHeater();
       await this.disableChamberHeater();
