@@ -8,7 +8,7 @@ import ScanningProbe from "./ScanningProbe.vue";
 registerRoute(ScanningProbe, {
   Plugins: {
     ObjectModel: {
-      icon: "mdi-file-tree",
+      icon: "mdi-arrow-expand-vertical",
       caption: "Scanning Probe",
       path: "/Plugins/ScanningProbe",
     },
