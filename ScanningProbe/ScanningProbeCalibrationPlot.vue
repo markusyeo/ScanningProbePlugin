@@ -76,19 +76,33 @@ canvas {
           persistent-placeholder
         />
       </div>
-      <v-alert v-if="jsonLoaded" class="coefficient-alert" type="info" text>
-        Suggested Coefficients: A = {{ coefficients.A.toFixed(4) }}, B =
-        {{ coefficients.B.toFixed(4) }}
+      <v-alert
+        v-if="jsonLoaded"
+        border="left"
+        class="coefficient-alert my-3"
+        type="info"
+        text
+      >
+        Suggested Coefficients: A = {{ coefficients.A.toFixed(2) }}, B =
+        {{ coefficients.B.toFixed(2) }}
         <br />
-        Read
+        You can use the coefficients to set the temperature compensation by
+        using
+        <code
+          >G31 ... T{{ coefficients.A.toFixed(2) }}:{{
+            coefficients.B.toFixed(2)
+          }}</code
+        >.
+        <br />
+        Refer to the
         <a
-          ref="https://docs.duet3d.com/User_manual/Reference/Gcodes/G31"
+          href="https://docs.duet3d.com/User_manual/Reference/Gcodes/G31"
           target="_blank"
           class="underlined-link"
         >
           Duet Documentation</a
         >
-        on how to set temperature coefficients to the probe in <code>G31</code>.
+        on how to set temperature coefficients for your probe.
       </v-alert>
       <canvas ref="scatterChart"></canvas>
     </div>
@@ -222,25 +236,71 @@ export default {
         scanCoefficients.C * probeDelta ** 3
       );
     },
-    computeBestFitCurve(data, xDelta = 0) {
-      const n = data.length;
-      let sumX = 0;
-      let sumY = 0;
-      let sumXY = 0;
-      let sumXX = 0;
+    computeBestFitCurve(data, C = 0, xDelta = 0) {
+      const xData = data.map((dataPoint) => dataPoint.x - xDelta);
+      const yData = data.map((dataPoint) => dataPoint.y);
+      return this.bestFitCurve(xData, yData, C);
+    },
+    bestFitCurve(x, y, C) {
+      const n = x.length;
+      let Sx = 0,
+        Sxx = 0,
+        Sxxx = 0,
+        Sxxxx = 0;
+      let Sy = 0,
+        Sxy = 0,
+        Sxxy = 0;
 
-      data.forEach((dataPoint) => {
-        const x = dataPoint.x - xDelta;
-        sumX += x;
-        sumY += dataPoint.y;
-        sumXY += x * dataPoint.y;
-        sumXX += x * x;
-      });
+      for (let i = 0; i < n; i++) {
+        Sx += x[i];
+        Sxx += x[i] * x[i];
+        Sxxx += x[i] * x[i] * x[i];
+        Sxxxx += x[i] * x[i] * x[i] * x[i];
+        Sy += y[i] - C;
+        Sxy += x[i] * (y[i] - C);
+        Sxxy += x[i] * x[i] * (y[i] - C);
+      }
 
-      const A = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
-      const B = (sumY - A * sumX) / n;
+      const A = [
+        [Sxx, Sx],
+        [Sxxx, Sxx],
+      ];
 
-      return [A, B];
+      const B = [Sxy, Sxxy];
+
+      function solveLinearSystem(A, B) {
+        const detA = A[0][0] * A[1][1] - A[0][1] * A[1][0];
+        const A_inv = [
+          [A[1][1] / detA, -A[0][1] / detA],
+          [-A[1][0] / detA, A[0][0] / detA],
+        ];
+
+        const X = [
+          A_inv[0][0] * B[0] + A_inv[0][1] * B[1],
+          A_inv[1][0] * B[0] + A_inv[1][1] * B[1],
+        ];
+
+        return X;
+      }
+
+      const [result_A, result_B] = solveLinearSystem(A, B);
+
+      const linear_B = Sxy / Sxx;
+
+      let quadraticError = 0,
+        linearError = 0;
+      for (let i = 0; i < n; i++) {
+        const quadraticY = result_A * x[i] * x[i] + result_B * x[i] + C;
+        const linearY = linear_B * x[i] + C;
+        quadraticError += Math.pow(y[i] - quadraticY, 2);
+        linearError += Math.pow(y[i] - linearY, 2);
+      }
+
+      if (linearError < quadraticError) {
+        return [0, linear_B];
+      } else {
+        return [result_A, result_B];
+      }
     },
     readProbeData(jsonData) {
       const validData = [];
@@ -272,7 +332,11 @@ export default {
       const data = this.chartData.datasets[0].data;
       const calibrationTemp = this.calibrationTemp;
 
-      const [A, B] = this.computeBestFitCurve(data, calibrationTemp);
+      const [A, B] = this.computeBestFitCurve(
+        data,
+        this.probeData.triggerHeight,
+        calibrationTemp
+      );
 
       this.coefficients.A = A;
       this.coefficients.B = B;
@@ -280,7 +344,7 @@ export default {
       const bestFitData = data.map((dataPoint) => {
         const deltaTemp = dataPoint.x - calibrationTemp;
         const bestFitHeight =
-          this.probeData.triggerHeight + A * deltaTemp + B * deltaTemp ** 2;
+          this.probeData.triggerHeight + B * deltaTemp + A * deltaTemp ** 2;
         return { x: dataPoint.x, y: bestFitHeight };
       });
 
