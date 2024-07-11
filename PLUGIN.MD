@@ -6,9 +6,9 @@ This plugin is to supplement the calibration of the Scanning Probe in order to a
 
 ## Plugin installation
 
-Starting from DWC 3.4 the **Scanning Probe plugin** can be installed to perform temperature calibration and generate `G31` temperature coefficients for the probe.
+The **Scanning Probe plugin** requires you to be on a RRF version of 3.5.2 or above. It can be installed to perform temperature calibration and generate `G31` temperature coefficients for the probe.
 
-To install the Scanning Probe plugin, download the latest release version for your RepRapFirmware version as a .zip file, without unpacking it, and upload it using the `Upload&Start` button on DWC _without_ unpacking the file first. After this, you should see the `Plugins` category with a new `Scanning Probe` item in the main menu on the left:
+To install the Scanning Probe plugin, download the latest release version for your RepRapFirmware version as a .zip file, without unpacking it, and upload it using the `Install` button on DWC _without_ unpacking the file first. After this, you should see the `Plugins` category with a new `Scanning Probe` item in the main menu on the left:
 
 ![Plugin Illustration](/images/PluginIllustration.png)
 
