@@ -1,6 +1,6 @@
 "use strict";
 
-import { registerRoute } from "../../routes";
+import { registerRoute } from "@/routes";
 
 import ScanningProbe from "./ScanningProbe.vue";
 
