@@ -16,7 +16,7 @@
 }
 
 canvas {
-  width: 100%;
+  width: 100% !important;
   background: transparent;
   border-radius: 8px;
 }
@@ -98,6 +98,7 @@ import Chart, {
 import dateFnsLocale from "date-fns/locale/en-US";
 import { Probe } from "@duet3d/objectmodel";
 import Vue from "vue";
+import mapState from "vuex";
 
 import i18n from "@/i18n";
 import store from "@/store";
@@ -112,6 +113,9 @@ const probeColors = [
   "grey",
   "lime",
   "black",
+];
+
+const probeHeightColors = [
   "purple",
   "yellow",
   "teal",
@@ -150,22 +154,34 @@ const probeSampleData: ProbeSampleData = {
  * @param index Sensor index
  * @param numSamples Number of current samples to generate for the resulting datset
  */
-function makeDataset(index: int, numSamples: int): ProbeChartDataset {
-  const color = probeColors[index],
-    dataset = {
-      index,
-      fill: false,
-      backgroundColor: color,
-      borderColor: color,
-      borderWidth: 2,
-      label: `Probe ${index}`,
-      data: new Array<number>(numSamples).fill(NaN),
-      locale: i18n.locale,
-      pointRadius: 0,
-      pointHitRadius: 0,
-      showLine: true,
-    };
-  return dataset;
+function makeDataset(
+  index: int,
+  numSamples: int,
+  colorSet: String
+): ProbeChartDataset {
+  let color = probeColors[index % probeColors.length];
+  let label = `Probe ${index}`;
+  let yAxisID = "y0";
+  if (colorSet === "height") {
+    color = probeHeightColors[index % probeHeightColors.length];
+    yAxisID = "y1";
+    label = `Height for Probe ${index}`;
+  }
+  return {
+    index,
+    yAxisID,
+    fill: false,
+    backgroundColor: color,
+    borderColor: color,
+    borderWidth: 2,
+    label,
+    data: new Array<number>(numSamples).fill(NaN),
+    locale: i18n.locale,
+    pointRadius: 0,
+    pointHitRadius: 0,
+    pointBackgroundColor: color,
+    showLine: true,
+  };
 }
 
 /**
@@ -178,38 +194,29 @@ function pushSeriesData(index: number, sensor: Probe) {
   let dataset = machineData.probeValues.find((item) => item.index === index);
 
   if (!dataset) {
-    const newDataset = makeDataset(index, probeSampleData.times.length);
-    probeSampleData.probeValues.push(newDataset);
-    newDataset.label = `Probe ${index.toString()}`;
-    newDataset.locale = i18n.locale;
+    dataset = makeDataset(index, probeSampleData.times.length, "probe");
+    probeSampleData.probeValues.push(dataset);
   }
 
   const probeValue = sensor.value ? sensor.value[0] : NaN;
   const heightParams = getHeightParams(sensor);
   const heightValue = calculateHeight(probeValue, heightParams);
 
-  if (dataset && dataset.data) {
-    dataset.data.push(probeValue);
-  }
+  dataset.data!.push(probeValue);
 
   if (heightValue !== null) {
-    const heightDataset = probeSampleData.probeValues.find(
+    let heightDataset = probeSampleData.probeValues.find(
       (item) => item.index === index && item.yAxisID === "y1"
     );
     if (!heightDataset) {
-      const newHeightDataset = {
-        ...makeDataset(index, probeSampleData.times.length),
-        yAxisID: "y1",
-        label: `Height for Probe ${index}`,
-        borderColor: "rgba(255, 162, 235, 0.6)",
-        backgroundColor: "rgba(255, 162, 235, 0.1)",
-      };
-      probeSampleData.probeValues.push(newHeightDataset);
+      heightDataset = makeDataset(
+        index,
+        probeSampleData.times.length,
+        "height"
+      );
+      probeSampleData.probeValues.push(heightDataset);
     }
-
-    if (heightDataset && heightDataset.data) {
-      heightDataset.data.push(heightValue);
-    }
+    heightDataset.data!.push(heightValue);
   }
 }
 
@@ -236,12 +243,12 @@ function calculateHeight(
     probeThreshold: probeThreshold,
   } = params;
 
-  if (probeThreshold === null) {
+  if (!probeThreshold || probeThreshold === 500) {
     // Threshold is null, do not plot
     return null;
   }
 
-  if (A == 0 && B == 0 && C == 0) {
+  if (A == 0 && B == 1 && C == 0) {
     return null;
   }
 
@@ -256,14 +263,16 @@ function calculateHeight(
 }
 
 function getHeightParams(sensor: Probe): HeightCalculationParams {
+  const scanningProbe: Probe = sensor;
+  const scanCoefficients = scanningProbe.scanCoefficients ?? [0, 0, 1, 0];
   const heightParams: HeightCalculationParams = {
-    triggerHeight: sensor.triggerHeight,
-    probeValueDelta: sensor.scanCoefficients ? sensor.scanCoefficients[0] : 0,
-    A: sensor.scanCoefficients ? sensor.scanCoefficients[1] : 0,
-    B: sensor.scanCoefficients ? sensor.scanCoefficients[2] : 0,
-    C: sensor.scanCoefficients ? sensor.scanCoefficients[3] : 0,
-    probeThreshold: sensor.threshold,
-    tempCoefficients: sensor.temperatureCoefficients,
+    triggerHeight: scanningProbe.triggerHeight,
+    probeValueDelta: scanCoefficients[0],
+    A: scanCoefficients[1],
+    B: scanCoefficients[2],
+    C: scanCoefficients[3],
+    probeThreshold: scanningProbe.threshold,
+    tempCoefficients: scanningProbe.temperatureCoefficients,
   };
   return heightParams;
 }
@@ -308,21 +317,15 @@ export default Vue.extend({
     probeItemValue(): (item: ProbeWithId) => number {
       return (item) => item.id;
     },
-    getMinOrMaxValueByIndex(): (number: number, boolean: boolean) => number {
+    getMinOrMaxValueByIndex(): (index: number, getMax: boolean) => number {
       return (index: number, getMax: boolean) => {
         if (!this.chart.data) return NaN;
         const datasets = this.chart.data.datasets;
         if (!datasets || index >= datasets.length) return NaN;
-        if (getMax) {
-          return Math.max(
-            ...(datasets[index].data as number[]).filter(
-              (value) => !isNaN(value)
-            )
-          );
-        }
-        return Math.min(
-          ...(datasets[index].data as number[]).filter((value) => !isNaN(value))
+        const filteredData = (datasets[index].data as number[]).filter(
+          (value) => !isNaN(value)
         );
+        return getMax ? Math.max(...filteredData) : Math.min(...filteredData);
       };
     },
     getMinProbeValue(): number {
@@ -480,26 +483,28 @@ export default Vue.extend({
       });
     },
     update() {
-      // Step 1: Update y axis ticks for probe values
-      this.chart.config.options!.scales!.yAxes![0].ticks!.min =
-        this.getMinProbeValue;
-      this.chart.config.options!.scales!.yAxes![0].ticks!.max =
-        this.getMaxProbeValue;
+      if (this.chart.data.datasets!.length > 0) {
+        // Update y axis ticks for probe values
+        this.chart.config.options!.scales!.yAxes![0].ticks!.min =
+          this.getMinProbeValue;
+        this.chart.config.options!.scales!.yAxes![0].ticks!.max =
+          this.getMaxProbeValue;
 
-      // Step 2: Update y axis ticks for height values
-      this.checkMissingProbeCoefficients();
-      this.chart.config.options!.scales!.yAxes![1].ticks!.min =
-        this.getMinHeight;
-      this.chart.config.options!.scales!.yAxes![1].ticks!.max =
-        this.getMaxHeight;
+        // Update y axis ticks for height values
+        this.checkMissingProbeCoefficients();
+        this.chart.config.options!.scales!.yAxes![1].ticks!.min =
+          this.getMinHeight;
+        this.chart.config.options!.scales!.yAxes![1].ticks!.max =
+          this.getMaxHeight;
 
-      // Step 3: Update the time axis
-      const now = new Date().getTime();
-      this.chart.config.options!.scales!.xAxes![0].ticks!.min =
-        now - maxSampleTime;
-      this.chart.config.options!.scales!.xAxes![0].ticks!.max = now;
+        // Update the time axis
+        const now = new Date().getTime();
+        this.chart.config.options!.scales!.xAxes![0].ticks!.min =
+          now - maxSampleTime;
+        this.chart.config.options!.scales!.xAxes![0].ticks!.max = now;
 
-      this.chart.update();
+        this.chart.update();
+      }
     },
     applyDarkTheme(active: boolean) {
       const ticksColor = active ? "#FFF" : "#666";
@@ -531,7 +536,9 @@ export default Vue.extend({
       this.chart.config.options!.scales!.yAxes![0].gridLines!.zeroLineColor =
         gridLineColor;
 
-      this.chart.update();
+      if (this.chart.data.datasets!.length > 0) {
+        this.chart.update();
+      }
     },
   },
   created() {},
@@ -544,8 +551,8 @@ export default Vue.extend({
 
     if (!storeSubscribed) {
       this.$root.$on(Events.machineModelUpdated, () => {
-        const dataset = probeSampleData,
-          now = new Date().getTime();
+        const dataset = probeSampleData;
+        const now = new Date().getTime();
 
         if (
           dataset.times.length === 0 ||
