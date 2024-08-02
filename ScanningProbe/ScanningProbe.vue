@@ -1,8 +1,4 @@
 <style scoped>
-.parent-container {
-  /* height: 60vh; */
-}
-
 .content {
   display: flex;
   flex-direction: column;
@@ -32,7 +28,7 @@
           <v-btn
             color="success"
             class="align-self-center ml-auto mr-2 hidden-sm-and-down"
-            :disabled="uiFrozen"
+            :disabled="uiFrozen && isScanningProbePresent"
             @click="showCalibrationDialog = true"
           >
             <v-icon class="mr-1">mdi-record</v-icon>
@@ -70,17 +66,17 @@
   </v-row>
 </template>
 
-<script>
+<script lang="ts">
 import ProbeValuesChart from "./ProbeValuesChart.vue";
-import { mapGetters } from "vuex";
 import CalibrateScanningProbeDialog from "./CalibrateScanningProbeDialog.vue";
 import ScanningProbeCalibrationPlot from "./ScanningProbeCalibrationPlot.vue";
 import store from "@/store";
+import { Probe } from "@duet3d/objectmodel/dist/sensors/Probe";
 
 function checkScanningProbePresent() {
   return (
     store.state.machine.model.sensors.probes.filter(
-      (probe) => probe.type === 11
+      (probe: Probe | null) => probe && probe.type.valueOf() === 11
     ).length > 0
   );
 }
@@ -94,26 +90,22 @@ export default {
   },
   data() {
     return {
-      tab: null,
-      showCalibrationDialog: false,
-
-      files: [],
-      filesLastModified: [],
-      loadingFiles: false,
-      filesError: null,
+      tab: null as string | null,
+      showCalibrationDialog: false as boolean,
     };
   },
   computed: {
-    ...mapGetters(["isConnected", "uiFrozen"]),
-    isScanningProbePresent() {
+    uiFrozen(): boolean {
+      return store.getters["uiFrozen"];
+    },
+
+    isScanningProbePresent(): boolean {
       return checkScanningProbePresent();
     },
   },
   methods: {
-    updateChartData() {},
   },
   mounted() {
-    this.updateChartData();
   },
 };
 </script>

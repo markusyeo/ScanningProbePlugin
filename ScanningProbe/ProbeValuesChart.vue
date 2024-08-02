@@ -98,7 +98,6 @@ import Chart, {
 import dateFnsLocale from "date-fns/locale/en-US";
 import { Probe } from "@duet3d/objectmodel";
 import Vue from "vue";
-import mapState from "vuex";
 
 import i18n from "@/i18n";
 import store from "@/store";

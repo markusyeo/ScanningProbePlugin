@@ -83,14 +83,17 @@ canvas {
         type="info"
         text
       >
-        Suggested Coefficients: A = {{ coefficients.A.toFixed(2) }}, B =
-        {{ coefficients.B.toFixed(2) }}
+        Suggested Coefficients: A =
+        {{ coefficients.A !== null ? coefficients.A.toFixed(2) : "N/A" }}, B =
+        {{ coefficients.B !== null ? coefficients.B.toFixed(2) : "N/A" }}
         <br />
         You can use the coefficients to set the temperature compensation by
         using
         <code
-          >G31 ... T{{ coefficients.A.toFixed(2) }}:{{
-            coefficients.B.toFixed(2)
+          >G31 ... T{{
+            coefficients.A !== null ? coefficients.A.toFixed(2) : "N/A"
+          }}:{{
+            coefficients.B !== null ? coefficients.B.toFixed(2) : "N/A"
           }}</code
         >.
         <br />
@@ -109,32 +112,56 @@ canvas {
   </div>
 </template>
 
-<script>
-import { Chart } from "chart.js";
+<script lang="ts">
+import { defineComponent, ref } from "vue";
+import { Chart, ChartData, ChartOptions, ChartXAxe, ChartYAxe } from "chart.js";
 
-export default {
+interface ScanCoefficients {
+  probeValueDelta: number | null;
+  A: number | null;
+  B: number | null;
+  C: number | null;
+}
+
+interface ProbeData {
+  scanCoefficients: ScanCoefficients;
+  probeThreshold: number | null;
+  triggerHeight: number | null;
+}
+
+interface Coefficients {
+  A: number | null;
+  B: number | null;
+}
+
+interface ChartDataPoint {
+  x: number;
+  y: number;
+}
+
+export default defineComponent({
   data() {
     return {
-      scatterChart: null,
+      scatterChart: null as Chart | null,
       calibrationTemp: 25,
       probeData: {
         scanCoefficients: { probeValueDelta: null, A: null, B: null, C: null },
         probeThreshold: null,
         triggerHeight: null,
-      },
+      } as ProbeData,
       chartData: {
         datasets: [
           {
             label: "Probe Temp vs. Computed Height",
-            data: [],
-            backgroundColor: "rgba(255, 0, 0, 0.5)", // Changed to red
-            borderColor: "rgba(255, 0, 0, 1)", // Changed to red
+            data: [] as ChartDataPoint[],
+            backgroundColor: "rgba(255, 0, 0, 0.5)",
+            borderColor: "rgba(255, 0, 0, 1)",
             type: "line",
             fill: false,
           },
           {
             label: "Best Fit Curve",
-            data: [],
+            data: [] as ChartDataPoint[],
             borderColor: "rgba(54, 162, 235, 1)",
             backgroundColor: "rgba(54, 162, 235, 0.5)",
             type: "line",
@@ -144,7 +171,7 @@ export default {
       },
       containsInvalidValues: false,
       jsonLoaded: false,
-      coefficients: { A: null, B: null },
+      coefficients: { A: null, B: null } as Coefficients,
     };
   },
   watch: {
@@ -155,36 +182,50 @@ export default {
   },
   methods: {
     initChart() {
-      const ctx = this.$refs.scatterChart.getContext("2d");
-      this.scatterChart = new Chart(ctx, {
-        type: "scatter",
-        data: this.chartData,
-        options: {
+      const ctx = (
+        this.$refs.scatterChart as HTMLCanvasElement | null
+      )?.getContext("2d");
+      if (ctx) {
+        const data: ChartData = {
+          datasets: this.chartData.datasets,
+        };
+
+        const options: ChartOptions = {
           responsive: true,
           scales: {
-            x: {
-              type: "linear",
-              position: "bottom",
-              title: {
-                display: true,
-                text: "Probe Temp (°C)",
+            xAxes: [
+              {
+                type: "linear",
+                position: "bottom",
+                scaleLabel: {
+                  display: true,
+                  labelString: "Probe Temp (°C)",
+                },
               },
-            },
-            y: {
-              title: {
-                display: true,
-                text: "Height",
+            ],
+            yAxes: [
+              {
+                scaleLabel: {
+                  display: true,
+                  labelString: "Height",
+                },
               },
-            },
+            ],
           },
-        },
-      });
+        };
+
+        this.scatterChart = new Chart(ctx, {
+          type: "scatter",
+          data,
+          options,
+        });
+      }
     },
-    onFileChange(file) {
+    onFileChange(file: File) {
       if (file) {
         const reader = new FileReader();
-        reader.onload = (event) => {
-          const jsonContent = event.target.result;
+        reader.onload = (event: ProgressEvent<FileReader>) => {
+          const jsonContent = event.target?.result as string;
           this.resetData();
           this.parseJsonData(jsonContent);
           this.computeTemperatureCoefficients();
@@ -202,46 +243,39 @@ export default {
       this.calibrationTemp = 25;
     },
     resetProbeData() {
-      const nullScanCoefficients = {
-        probeValueDelta: null,
-        A: null,
-        B: null,
-        C: null,
-      };
       this.probeData = {
-        scanCoefficients: nullScanCoefficients,
+        scanCoefficients: { probeValueDelta: null, A: null, B: null, C: null },
         probeThreshold: null,
         triggerHeight: null,
       };
     },
-    parseJsonData(jsonContent) {
+    parseJsonData(jsonContent: string) {
       try {
         const jsonData = JSON.parse(jsonContent);
         this.readProbeSettings(jsonData);
         this.readProbeData(jsonData);
-
         this.updateScatterChart();
       } catch (error) {
         console.error("Error parsing JSON:", error);
       }
     },
-    computeHeight(probeValue) {
-      const triggerHeight = this.probeData.triggerHeight;
-      const probeDelta = probeValue - this.probeData.probeThreshold;
-      const scanCoefficients = this.probeData.scanCoefficients;
+    computeHeight(probeValue: number) {
+      const triggerHeight = this.probeData.triggerHeight!;
+      const probeDelta = probeValue - this.probeData.probeThreshold!;
+      const { A, B, C } = this.probeData.scanCoefficients;
       return (
         triggerHeight +
-        scanCoefficients.A * probeDelta +
-        scanCoefficients.B * probeDelta ** 2 +
-        scanCoefficients.C * probeDelta ** 3
+        A! * probeDelta +
+        B! * probeDelta ** 2 +
+        C! * probeDelta ** 3
       );
     },
-    computeBestFitCurve(data, C = 0, xDelta = 0) {
+    computeBestFitCurve(data: ChartDataPoint[], C = 0, xDelta = 0) {
       const xData = data.map((dataPoint) => dataPoint.x - xDelta);
       const yData = data.map((dataPoint) => dataPoint.y);
       return this.bestFitCurve(xData, yData, C);
     },
-    bestFitCurve(x, y, C) {
+    bestFitCurve(x: number[], y: number[], C: number) {
       const n = x.length;
       let Sx = 0,
         Sxx = 0,
@@ -268,7 +302,7 @@ export default {
 
       const B = [Sxy, Sxxy];
 
-      function solveLinearSystem(A, B) {
+      function solveLinearSystem(A: number[][], B: number[]) {
         const detA = A[0][0] * A[1][1] - A[0][1] * A[1][0];
         const A_inv = [
           [A[1][1] / detA, -A[0][1] / detA],
@@ -302,28 +336,30 @@ export default {
         return [result_A, result_B];
       }
     },
-    readProbeData(jsonData) {
-      const validData = [];
-      const probeTemps = [];
+    readProbeData(jsonData: any) {
+      const validData: ChartDataPoint[] = [];
+      const probeTemps: number[] = [];
 
       this.containsInvalidValues = false;
 
-      jsonData.calibrationValues.forEach((dataPoint) => {
-        const [bedTemp, probeTemp, probeValue] = dataPoint;
+      jsonData.calibrationValues.forEach(
+        (dataPoint: [number, number, number]) => {
+          const [bedTemp, probeTemp, probeValue] = dataPoint;
 
-        if (probeValue === 999999) {
-          this.containsInvalidValues = true;
-        } else {
-          const height = this.computeHeight(probeValue);
-          validData.push({ x: probeTemp, y: height });
-          probeTemps.push(probeTemp);
+          if (probeValue === 999999) {
+            this.containsInvalidValues = true;
+          } else {
+            const height = this.computeHeight(probeValue);
+            validData.push({ x: probeTemp, y: height });
+            probeTemps.push(probeTemp);
+          }
         }
-      });
+      );
 
       this.chartData.datasets[0].data = validData;
       this.calibrationTemp = Math.min(...probeTemps);
     },
-    readProbeSettings(jsonData) {
+    readProbeSettings(jsonData: any) {
       this.probeData.scanCoefficients = jsonData.scanCoefficients;
       this.probeData.probeThreshold = jsonData.probeThreshold;
       this.probeData.triggerHeight = jsonData.triggerHeight;
@@ -334,7 +370,7 @@ export default {
 
       const [A, B] = this.computeBestFitCurve(
         data,
-        this.probeData.triggerHeight,
+        this.probeData.triggerHeight!,
         calibrationTemp
       );
 
@@ -344,7 +380,7 @@ export default {
       const bestFitData = data.map((dataPoint) => {
         const deltaTemp = dataPoint.x - calibrationTemp;
         const bestFitHeight =
-          this.probeData.triggerHeight + B * deltaTemp + A * deltaTemp ** 2;
+          this.probeData.triggerHeight! + B * deltaTemp + A * deltaTemp ** 2;
         return { x: dataPoint.x, y: bestFitHeight };
       });
 
@@ -358,5 +394,5 @@ export default {
       }
     },
   },
-};
+})
 </script>
