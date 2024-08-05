@@ -50,11 +50,7 @@
           <!-- Calibration Tab -->
           <v-tab-item value="calibration">
             <div class="content">
-              <v-alert v-if="!isScanningProbePresent" type="info" class="mb-0">
-                No scanning probe is connected. Please attach a scanning probe
-                for calibration.
-              </v-alert>
-              <div v-if="isScanningProbePresent">
+              <div>
                 <scanning-probe-calibration-plot class="flex-grow-1" />
               </div>
             </div>

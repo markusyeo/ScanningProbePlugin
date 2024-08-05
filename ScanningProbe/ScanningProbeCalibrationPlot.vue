@@ -94,7 +94,7 @@ canvas {
             coefficients.A !== null ? coefficients.A.toFixed(2) : "N/A"
           }}:{{
             coefficients.B !== null ? coefficients.B.toFixed(2) : "N/A"
-          }}</code
+          }} S{{calibrationTemp}}</code
         >.
         <br />
         Refer to the
@@ -113,8 +113,8 @@ canvas {
 </template>
 
 <script lang="ts">
-import { defineComponent, ref } from "vue";
-import { Chart, ChartData, ChartOptions, ChartXAxe, ChartYAxe } from "chart.js";
+import { defineComponent } from "vue";
+import { Chart, ChartData, ChartOptions } from "chart.js";
 
 interface ScanCoefficients {
   probeValueDelta: number | null;
