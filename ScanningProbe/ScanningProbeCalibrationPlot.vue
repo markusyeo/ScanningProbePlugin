@@ -76,6 +76,24 @@ canvas {
           persistent-placeholder
         />
       </div>
+      <div class="input-row">
+        <v-text-field
+          label="Coefficient A"
+          v-model.number="coefficients.A"
+          type="number"
+          @input="updateBestFitCurve"
+          outlined
+          persistent-placeholder
+        />
+        <v-text-field
+          label="Coefficient B"
+          v-model.number="coefficients.B"
+          type="number"
+          @input="updateBestFitCurve"
+          outlined
+          persistent-placeholder
+        />
+      </div>
       <v-alert
         v-if="jsonLoaded"
         border="left"
@@ -83,18 +101,13 @@ canvas {
         type="info"
         text
       >
-        Suggested Coefficients: A =
-        {{ coefficients.A !== null ? coefficients.A.toFixed(2) : "N/A" }}, B =
-        {{ coefficients.B !== null ? coefficients.B.toFixed(2) : "N/A" }}
+        Suggested Coefficients: A = {{ coefficients.A }},
+         B = {{ coefficients.B }}
         <br />
         You can use the coefficients to set the temperature compensation by
         using
         <code
-          >G31 ... T{{
-            coefficients.A !== null ? coefficients.A.toFixed(2) : "N/A"
-          }}:{{
-            coefficients.B !== null ? coefficients.B.toFixed(2) : "N/A"
-          }} S{{calibrationTemp}}</code
+          >G31 ... T{{ coefficients.A }}:{{ coefficients.B }} S{{calibrationTemp}}</code
         >.
         <br />
         Refer to the
@@ -130,8 +143,8 @@ interface ProbeData {
 }
 
 interface Coefficients {
-  A: number | null;
-  B: number | null;
+  A: number;
+  B: number;
 }
 
 interface ChartDataPoint {
@@ -171,7 +184,7 @@ export default defineComponent({
       },
       containsInvalidValues: false,
       jsonLoaded: false,
-      coefficients: { A: null, B: null } as Coefficients,
+      coefficients: { A: 0, B: 0 } as Coefficients,
     };
   },
   watch: {
@@ -317,21 +330,21 @@ export default defineComponent({
         return X;
       }
 
-      const [result_A, result_B] = solveLinearSystem(A, B);
+      const [result_B, result_A] = solveLinearSystem(A, B);
 
-      const linear_B = Sxy / Sxx;
+      const linear_A = Sxy / Sxx;
 
       let quadraticError = 0,
         linearError = 0;
       for (let i = 0; i < n; i++) {
-        const quadraticY = result_A * x[i] * x[i] + result_B * x[i] + C;
-        const linearY = linear_B * x[i] + C;
+        const quadraticY = result_B * x[i] * x[i] + result_A * x[i] + C;
+        const linearY = linear_A * x[i] + C;
         quadraticError += Math.pow(y[i] - quadraticY, 2);
         linearError += Math.pow(y[i] - linearY, 2);
       }
 
       if (linearError < quadraticError) {
-        return [0, linear_B];
+        return [linear_A, 0];
       } else {
         return [result_A, result_B];
       }
@@ -374,18 +387,37 @@ export default defineComponent({
         calibrationTemp
       );
 
-      this.coefficients.A = A;
-      this.coefficients.B = B;
+      this.coefficients.A = parseFloat(A.toFixed(5));
+      this.coefficients.B = parseFloat(B.toFixed(5));
 
       const bestFitData = data.map((dataPoint) => {
         const deltaTemp = dataPoint.x - calibrationTemp;
         const bestFitHeight =
-          this.probeData.triggerHeight! + B * deltaTemp + A * deltaTemp ** 2;
+          this.probeData.triggerHeight! + A * deltaTemp + B * deltaTemp ** 2;
         return { x: dataPoint.x, y: bestFitHeight };
       });
 
       this.chartData.datasets[1].data = bestFitData;
 
+      this.updateScatterChart();
+    },
+    updateBestFitCurve() {
+      this.coefficients.A = parseFloat(this.coefficients.A.toFixed(5));
+      this.coefficients.B = parseFloat(this.coefficients.B.toFixed(5));
+      
+      const A = this.coefficients.A;
+      const B = this.coefficients.B;
+
+      const calibrationTemp = this.calibrationTemp;
+
+      const bestFitData = this.chartData.datasets[0].data.map((dataPoint) => {
+        const deltaTemp = dataPoint.x - calibrationTemp;
+        const bestFitHeight =
+          this.probeData.triggerHeight! + A * deltaTemp + B * deltaTemp ** 2;
+        return { x: dataPoint.x, y: bestFitHeight };
+      });
+
+      this.chartData.datasets[1].data = bestFitData;
       this.updateScatterChart();
     },
     updateScatterChart() {
