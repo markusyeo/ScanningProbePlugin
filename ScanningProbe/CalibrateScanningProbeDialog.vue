@@ -364,26 +364,26 @@
           <!-- Data Collection -->
           <v-window-item value="calibration">
             <v-container>
-              <div v-if="!calibrationFinished">
-                <v-alert
-                  v-if="!calibrationStarted"
-                  :value="!allAxesHomed"
-                  border="left"
-                  dense
-                  text
+              <v-alert
+              v-if="!calibrationStarted"
+              :value="!allAxesHomed"
+              border="left"
+              dense
+              text
                   :type="allAxesHomed ? 'success' : 'warning'"
                   class="centered-alert my-3"
                 >
-                  Machine is not homed! Home it before starting calibration.
-                  <code-btn
+                Machine is not homed! Home it before starting calibration.
+                <code-btn
                     code="G28"
                     color="warning"
                     small
                     class="float-right"
                   >
-                    Home All
-                  </code-btn>
-                </v-alert>
+                  Home All
+                </code-btn>
+              </v-alert>
+              <div v-if="!calibrationFinished && !calibrationCancelled">
                 <h2>Calibration</h2>
                 <v-row>
                   <v-col cols="12">
@@ -409,7 +409,7 @@
                     </v-simple-table>
                   </v-col>
                 </v-row>
-                <div class="mt-3" v-if="calibrationStarted && !calibrationCancelled">
+                <div class="mt-3">
                   <h2>Progress</h2>
                   <v-row>
                     <v-col>
@@ -471,22 +471,24 @@
                   >
                 </div>
                 <div v-else>
-                  <v-alert type="info" border="left" text dense v-if="!calibrationFinished && !calibrationCancelled">
+                  <v-alert type="info" border="left" text dense >
                     Calibration in progress. Please wait...
                   </v-alert>
-                  <v-btn
-                    color="red"
-                    v-if="!calibrationCancelled"
-                    @click="cancel"
-                    >Cancel Calibration</v-btn
+                  <v-btn  
+                  color="red"
+                  @click="cancel"
+                  >Cancel Calibration</v-btn
                   >
                 </div>
               </div>
-              <div v-else>
-                <h2>Calibration Finished</h2>
-                <v-btn class="mt-3" color="blue darken-1" @click="downloadCalibrationResults"
+              <div v-else class="mt-3">
+                <div>
+                  <h2 v-if="calibrationFinished">Calibration Finished</h2>
+                  <h2 v-if="calibrationCancelled">Calibration Cancelled</h2>
+                  <v-btn class="mt-3" color="blue darken-1" @click="downloadCalibrationResults"
                   >Download Calibration Results</v-btn
-                >
+                  >
+                </div>
               </div>
             </v-container>
             <v-divider />
@@ -654,7 +656,7 @@ export default Vue.extend({
   },
   data() {
     return {
-      currentPage: "calibration" as string,
+      currentPage: "start" as string,
       showFanConfig: false,
       showChamberHeatersConfig: false,
       calibrationParams: {
@@ -669,8 +671,8 @@ export default Vue.extend({
         chamberHeaterStop: null,
         fans: [{ id: null, speed: 0 }],
       } as CalibrationParams,
-      calibrationStarted: true,
-      calibrationFinished: true,
+      calibrationStarted: false,
+      calibrationFinished: false,
       calibrationCancelled: false,
       calibrationResults: {
         calibrationValues: [],
@@ -818,7 +820,7 @@ export default Vue.extend({
         return true;
       }
       if (this.currentPage === "calibration") {
-        return !this.calibrationStarted;
+        return !this.calibrationStarted || this.calibrationCancelled;
       }
       return false;
     },
