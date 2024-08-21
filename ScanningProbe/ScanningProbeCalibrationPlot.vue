@@ -165,7 +165,7 @@ export default defineComponent({
       chartData: {
         datasets: [
           {
-            label: "Probe Temp vs. Computed Height",
+            label: "Delta From Trigger Height",
             data: [] as ChartDataPoint[],
             backgroundColor: "rgba(255, 0, 0, 0.5)",
             borderColor: "rgba(255, 0, 0, 1)",
@@ -220,7 +220,7 @@ export default defineComponent({
               {
                 scaleLabel: {
                   display: true,
-                  labelString: "Height",
+                  labelString: "Height (mm)",
                 },
               },
             ],
@@ -273,22 +273,20 @@ export default defineComponent({
       }
     },
     computeHeight(probeValue: number) {
-      const triggerHeight = this.probeData.triggerHeight!;
       const probeDelta = probeValue - this.probeData.probeThreshold!;
       const { A, B, C } = this.probeData.scanCoefficients;
       return (
-        triggerHeight +
         A! * probeDelta +
         B! * probeDelta ** 2 +
         C! * probeDelta ** 3
       );
     },
-    computeBestFitCurve(data: ChartDataPoint[], C = 0, xDelta = 0) {
+    computeBestFitCurve(data: ChartDataPoint[], xDelta = 0) {
       const xData = data.map((dataPoint) => dataPoint.x - xDelta);
       const yData = data.map((dataPoint) => dataPoint.y);
-      return this.bestFitCurve(xData, yData, C);
+      return this.bestFitCurve(xData, yData);
     },
-    bestFitCurve(x: number[], y: number[], C: number) {
+    bestFitCurve(x: number[], y: number[]) {
       const n = x.length;
       let Sx = 0,
         Sxx = 0,
@@ -303,9 +301,9 @@ export default defineComponent({
         Sxx += x[i] * x[i];
         Sxxx += x[i] * x[i] * x[i];
         Sxxxx += x[i] * x[i] * x[i] * x[i];
-        Sy += y[i] - C;
-        Sxy += x[i] * (y[i] - C);
-        Sxxy += x[i] * x[i] * (y[i] - C);
+        Sy += y[i];
+        Sxy += x[i] * (y[i]);
+        Sxxy += x[i] * x[i] * (y[i]);
       }
 
       const A = [
@@ -337,8 +335,8 @@ export default defineComponent({
       let quadraticError = 0,
         linearError = 0;
       for (let i = 0; i < n; i++) {
-        const quadraticY = result_B * x[i] * x[i] + result_A * x[i] + C;
-        const linearY = linear_A * x[i] + C;
+        const quadraticY = result_B * x[i] * x[i] + result_A * x[i];
+        const linearY = linear_A * x[i];
         quadraticError += Math.pow(y[i] - quadraticY, 2);
         linearError += Math.pow(y[i] - linearY, 2);
       }
@@ -363,7 +361,7 @@ export default defineComponent({
             this.containsInvalidValues = true;
           } else {
             const height = this.computeHeight(probeValue);
-            validData.push({ x: probeTemp, y: height });
+            validData.push({ x: probeTemp, y: -1 * height });
             probeTemps.push(probeTemp);
           }
         }
@@ -383,7 +381,6 @@ export default defineComponent({
 
       const [A, B] = this.computeBestFitCurve(
         data,
-        this.probeData.triggerHeight!,
         calibrationTemp
       );
 
@@ -392,8 +389,7 @@ export default defineComponent({
 
       const bestFitData = data.map((dataPoint) => {
         const deltaTemp = dataPoint.x - calibrationTemp;
-        const bestFitHeight =
-          this.probeData.triggerHeight! + A * deltaTemp + B * deltaTemp ** 2;
+        const bestFitHeight = A * deltaTemp + B * deltaTemp ** 2;
         return { x: dataPoint.x, y: bestFitHeight };
       });
 
@@ -412,8 +408,7 @@ export default defineComponent({
 
       const bestFitData = this.chartData.datasets[0].data.map((dataPoint) => {
         const deltaTemp = dataPoint.x - calibrationTemp;
-        const bestFitHeight =
-          this.probeData.triggerHeight! + A * deltaTemp + B * deltaTemp ** 2;
+        const bestFitHeight = A * deltaTemp + B * deltaTemp ** 2;
         return { x: dataPoint.x, y: bestFitHeight };
       });
 
