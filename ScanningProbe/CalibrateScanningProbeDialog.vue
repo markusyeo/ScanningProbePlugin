@@ -47,7 +47,7 @@
             <div v-if="scanningProbes.length > 0">
               <ul class="mt-3 mb-4">
                 <li v-for="probe in scanningProbes" :key="probe.id">
-                  <strong>Scanning Probe: Index #{{ probe.id }}</strong>
+                  <strong>Scanning Probe: Probe {{ probe.id }}</strong>
                   <ul>
                     <li>
                       Current temp coefficients:
@@ -383,7 +383,7 @@
                   Home All
                 </code-btn>
               </v-alert>
-              <div v-if="!calibrationFinished && !calibrationCancelled">
+              <div v-if="!calibrationCancelled">
                 <h2>Calibration</h2>
                 <v-row>
                   <v-col cols="12">
@@ -400,9 +400,9 @@
                         </tr>
                         <tr>
                           <td>Bed Temp</td>
-                          <td>{{ getBedHeaterTemp.toFixed(2) }}°C</td>
+                          <td>{{ getBedHeaterTemp ? getBedHeaterTemp.toFixed(2) : 0.00 }}°C</td>
                           <td>Scanning Probe Temp</td>
-                          <td>{{ getScanningProbeTemp.toFixed(2) }}°C</td>
+                          <td>{{ getScanningProbeTemp ? getScanningProbeTemp.toFixed(2) : 0.00 }}°C</td>
                         </tr>
                         <tr></tr>
                       </tbody>
@@ -463,25 +463,43 @@
                     command will be executed when you click it. And the selected
                     tool will be set to the trigger height.
                   </v-alert>
-                  <v-btn
-                    :disabled="!allAxesHomed"
-                    color="blue darken-1"
-                    @click="startCalibration"
-                    >Start Calibration</v-btn
-                  >
+                  <div>
+                    Your bed will soak at each temperature step for the duration:
+                    <v-text-field
+                      v-model="soakDurationInSeconds"
+                      type="number"
+                      label="Soak Duration (s)"
+                      hide-details
+                      min="0"
+                      class="mb-3"
+                    ></v-text-field>
+                    <v-btn
+                      :disabled="!allAxesHomed"
+                      color="blue darken-1"
+                      @click="startCalibration"
+                      >Start Calibration</v-btn
+                    >
+                  </div>
                 </div>
                 <div v-else>
-                  <v-alert type="info" border="left" text dense >
+                  <v-alert 
+                    v-if="!calibrationFinished"
+                    type="info" 
+                    border="left" 
+                    text 
+                    dense 
+                  >
                     Calibration in progress. Please wait...
                   </v-alert>
-                  <v-btn  
+                  <v-btn
+                  v-if="!calibrationFinished"  
                   color="red"
                   @click="cancel"
                   >Cancel Calibration</v-btn
                   >
                 </div>
               </div>
-              <div v-else class="mt-3">
+              <div v-if="calibrationFinished || calibrationCancelled" class="mt-3">
                 <div>
                   <h2 v-if="calibrationFinished">Calibration Finished</h2>
                   <h2 v-if="calibrationCancelled">Calibration Cancelled</h2>
@@ -647,6 +665,9 @@ enum CalibrationStatus {
   soaking = "soaking",
   completed = "completed",
 }
+
+const TEMP_THRESHOLD = 0.5;
+
 export default Vue.extend({
   props: {
     shown: {
@@ -672,6 +693,8 @@ export default Vue.extend({
         fans: [{ id: null, speed: 0 }],
       } as CalibrationParams,
       calibrationStarted: false,
+      soakDurationInSeconds: 300, // 5 minutes default
+      calibrationSoakDuration: 300000,
       calibrationFinished: false,
       calibrationCancelled: false,
       calibrationResults: {
@@ -748,7 +771,7 @@ export default Vue.extend({
         assignIndexAndRemoveNull(this.model.sensors.probes);
       return indexedProbes
         .map(({ id, val }) => ({ 
-          probe: val, name: `Probe #${id}`, id 
+          probe: val, name: `Probe ${id}`, id 
         } as IndexedProbe))
         .filter((probe: IndexedProbe) => probe.probe.type === ProbeType.scanningAnalog);
     },
@@ -1183,7 +1206,7 @@ export default Vue.extend({
 
       for (let i = 0; i < temps.length; i++) {
         const temp = temps[i];
-        if (this.getBedHeaterTemp > temp + 1) {
+        if (this.getBedHeaterTemp > temp + TEMP_THRESHOLD) {
           this.setCalibrationStatus(i, CalibrationStatus.completed);
           continue;
         }
@@ -1191,7 +1214,7 @@ export default Vue.extend({
         await this.waitForStabilization(temp);
 
         this.setCalibrationStatus(i, CalibrationStatus.soaking);
-        await this.soakAtTemp();
+        await this.soakAtTemp(temp);
 
         this.setCalibrationStatus(i, CalibrationStatus.completed);
 
@@ -1205,44 +1228,50 @@ export default Vue.extend({
     setCalibrationStatus(index: number, status: CalibrationStatus) {
       this.calibrationProgress.values[index].status = status;
     },
-    async updateProgressLoop() {
+    async updateProgressLoop(targetTemp: number) {
       this.updateTimeElapsed();
+      await this.disableBedHeater();
       await this.recordProbeValue();
+      await this.setBedHeater(targetTemp);
       await this.delay(1000);
+    },
+    async recordProbeValue() {
+      const currentBedTemp: number = this.getBedHeaterTemp;
+      const currentProbeValue: number = this.getScanningProbeValue;
+      const currentProbeTemp: number = this.getScanningProbeTemp;
+      const res: number[] = [currentBedTemp, currentProbeTemp, currentProbeValue];
+      this.calibrationResults.calibrationValues.push(res);
     },
     updateTimeElapsed() {
       const timeElapsed: number = Date.now() - this.calibrationProgress.startTime;
       this.calibrationProgress.timeElapsed = timeElapsed;
     },
     checkStartTemperature(): boolean {
-      const currentTemp: number = this.getBedHeaterTemp;
-      const startTemp: number = Number(this.calibrationParams.bedHeaterStart) + 1;
-      return currentTemp > startTemp;
+      const startTemp: number = Number(this.calibrationParams.bedHeaterStart);
+      return this.getBedHeaterTemp > startTemp + TEMP_THRESHOLD;
     },
     isTemperatureStable(targetTemp: number) {
-      const currentTemp = this.getBedHeaterTemp;
-      return Math.abs(currentTemp - targetTemp) < 1;
+      return Math.abs(this.getBedHeaterTemp - targetTemp) < TEMP_THRESHOLD;
     },
     async waitForStabilization(targetTemp: number) {
-      await this.setBedHeater(targetTemp);
       while (!this.isTemperatureStable(targetTemp)) {
         if (this.calibrationCancelled) {
           this.cleanUp();
           break;
         }
-        await this.updateProgressLoop();
+        await this.updateProgressLoop(targetTemp);
       }
     },
-    async soakAtTemp(duration = 300000) {
-      // Default soak duration is 5 minutes
+    async soakAtTemp(temp: number) {
+      const soakDuration = this.calibrationSoakDuration;
       const soakStartTime: number = Date.now();
       await this.delay(1000);
-      while (duration > Date.now() - soakStartTime) {
+      while (soakDuration > Date.now() - soakStartTime) {
         if (this.calibrationCancelled) {
           this.cleanUp();
           break;
         }
-        await this.updateProgressLoop();
+        await this.updateProgressLoop(temp);
       }
     },
     async cleanUp() {
@@ -1262,18 +1291,6 @@ export default Vue.extend({
       const time: string = new Date().toISOString().replace(/:/g, "-");
       const probeId: number = this.selectedScanningProbe!.id;
       return `scanning-probe-index-${probeId}-calibration-${time}`;
-    },
-    async recordProbeValue() {
-      const currentTargetBedTemp: number = this.getBedHeaterActiveTemp;
-
-      await this.disableBedHeater();
-
-      const currentBedTemp: number = this.getBedHeaterTemp;
-      const currentProbeValue: number = this.getScanningProbeValue;
-      const currentProbeTemp: number = this.getScanningProbeTemp;
-      await this.setBedHeater(currentTargetBedTemp);
-      const res: number[] = [currentBedTemp, currentProbeTemp, currentProbeValue];
-      this.calibrationResults.calibrationValues.push(res);
     },
     delay(ms: number) {
       return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1375,6 +1392,9 @@ export default Vue.extend({
         this.calibrationParams.selectedBedHeater = newHeaters[0];
       }
     },
+    soakDurationInSeconds(newVal) {
+      this.calibrationSoakDuration = newVal * 1000;
+    }
   },
 });
 </script>

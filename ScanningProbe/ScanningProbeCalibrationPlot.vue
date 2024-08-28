@@ -1,39 +1,25 @@
 <style scoped>
-.calibration-plot {
-  height: 100%;
-  width: 100%;
+.chart-wrapper {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.canvas-wrapper {
   width: 100%;
-  flex: 1;
-  display: flex;
-  justify-content: center;
+  max-height: 70%;
+  flex-grow: 1;
+  justify-content: flex-start;
   align-items: center;
-  flex-direction: column;
   padding: 20px;
   border-radius: 8px;
+  border: 1px solid #ddd;
 }
 
 canvas {
   width: 100%;
   background: transparent;
-  padding: 20px;
-  border: 1px solid #ddd;
   border-radius: 8px;
-  margin-top: 8px;
 }
 
 .input-row {
   width: 100%;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 
 .input-row .v-text-field,
@@ -44,8 +30,8 @@ canvas {
 
 .coefficient-alert {
   width: 100%;
-  display: flex;
   align-items: center;
+  margin-bottom: 8px;
 }
 
 .underlined-link {
@@ -54,75 +40,71 @@ canvas {
 </style>
 
 <template>
-  <div class="calibration-plot">
-    <v-alert v-if="containsInvalidValues" type="warning" text>
+  <v-container fluid>
+    <v-alert v-if="containsInvalidValues" type="warning" text class="coefficient-alert">
       JSON contains invalid values with probeValue set to 999999.
     </v-alert>
 
-    <div class="canvas-wrapper">
-      <div class="input-row">
-        <v-file-input
-          label="Upload Calibration JSON"
-          @change="onFileChange"
-          accept=".json"
-          outlined
-        />
-        <v-text-field
-          label="Base Temp for Best Fit Curve (°C)"
-          v-model="calibrationTemp"
-          type="number"
-          @input="computeTemperatureCoefficients"
-          outlined
-          persistent-placeholder
-        />
+    <div class="input-row">
+      <v-file-input
+        label="Upload Calibration JSON"
+        @change="onFileChange"
+        accept=".json"
+        outlined
+      />
+      <v-text-field
+        label="Base Temp for Best Fit Curve (°C)"
+        v-model="calibrationTemp"
+        type="number"
+        @input="computeTemperatureCoefficients"
+        outlined
+        persistent-placeholder
+      />
+    </div>
+
+    <div class="input-row">
+      <v-text-field
+        label="Coefficient A"
+        v-model.trim="coefficients.A"
+        @input="updateBestFitCurve"
+        outlined
+        persistent-placeholder
+      />
+      <v-text-field
+        label="Coefficient B"
+        v-model.trim="coefficients.B"
+        @input="updateBestFitCurve"
+        outlined
+        persistent-placeholder
+      />
+    </div>
+
+    <v-alert border="left" class="coefficient-alert" type="info" text>
+      <div v-if="jsonLoaded">
+        Suggested Coefficients: A = {{ coefficients.A }}, B = {{ coefficients.B }}
+        <br />
+        You can use the coefficients to set the temperature compensation by using
+        <code>G31 ... T{{ coefficients.A }}:{{ coefficients.B }} S{{calibrationTemp}}</code>.
       </div>
-      <div class="input-row">
-        <v-text-field
-          label="Coefficient A"
-          v-model.number="coefficients.A"
-          type="number"
-          @input="updateBestFitCurve"
-          outlined
-          persistent-placeholder
-        />
-        <v-text-field
-          label="Coefficient B"
-          v-model.number="coefficients.B"
-          type="number"
-          @input="updateBestFitCurve"
-          outlined
-          persistent-placeholder
-        />
+      <div v-else>
+        Upload a JSON file to view the suggested coefficients.
       </div>
-      <v-alert
-        v-if="jsonLoaded"
-        border="left"
-        class="coefficient-alert my-3"
-        type="info"
-        text
+      <br />
+      Refer to the
+      <a
+        href="https://docs.duet3d.com/User_manual/Reference/Gcodes/G31"
+        target="_blank"
+        class="underlined-link"
       >
-        Suggested Coefficients: A = {{ coefficients.A }},
-         B = {{ coefficients.B }}
-        <br />
-        You can use the coefficients to set the temperature compensation by
-        using
-        <code
-          >G31 ... T{{ coefficients.A }}:{{ coefficients.B }} S{{calibrationTemp}}</code
-        >.
-        <br />
-        Refer to the
-        <a
-          href="https://docs.duet3d.com/User_manual/Reference/Gcodes/G31"
-          target="_blank"
-          class="underlined-link"
-        >
-          Duet Documentation</a
-        >
-        on how to set temperature coefficients for your probe.
-      </v-alert>
+        Duet Documentation</a>
+      >
+      on how to set temperature coefficients for your probe.
+    </v-alert>
+
+    <div class="chart-wrapper">
       <canvas ref="scatterChart"></canvas>
     </div>
-  </div>
+  </v-container>
 </template>
 
 <script lang="ts">
@@ -143,8 +125,8 @@ interface ProbeData {
 }
 
 interface Coefficients {
-  A: number;
-  B: number;
+  A: string;
+  B: string;
 }
 
 interface ChartDataPoint {
@@ -184,7 +166,7 @@ export default defineComponent({
       },
       containsInvalidValues: false,
       jsonLoaded: false,
-      coefficients: { A: 0, B: 0 } as Coefficients,
+      coefficients: { A: '0', B: '0' } as Coefficients,
     };
   },
   watch: {
@@ -205,6 +187,7 @@ export default defineComponent({
 
         const options: ChartOptions = {
           responsive: true,
+          maintainAspectRatio: false,
           scales: {
             xAxes: [
               {
@@ -384,8 +367,8 @@ export default defineComponent({
         calibrationTemp
       );
 
-      this.coefficients.A = parseFloat(A.toFixed(5));
-      this.coefficients.B = parseFloat(B.toFixed(5));
+      this.coefficients.A = A.toFixed(5);
+      this.coefficients.B = B.toFixed(5);
 
       const bestFitData = data.map((dataPoint) => {
         const deltaTemp = dataPoint.x - calibrationTemp;
@@ -398,11 +381,8 @@ export default defineComponent({
       this.updateScatterChart();
     },
     updateBestFitCurve() {
-      this.coefficients.A = parseFloat(this.coefficients.A.toFixed(5));
-      this.coefficients.B = parseFloat(this.coefficients.B.toFixed(5));
-      
-      const A = this.coefficients.A;
-      const B = this.coefficients.B;
+      const A = parseFloat(this.coefficients.A);
+      const B = parseFloat(this.coefficients.B);
 
       const calibrationTemp = this.calibrationTemp;
 
