@@ -163,7 +163,6 @@
                       v-model="calibrationParams.selectedTool"
                       :items="toolList"
                       item-text="name"
-                      item-value="tool"
                       label="Select Scanning Probe Tool"
                       class="mb-1"
                       hide-details
@@ -781,7 +780,7 @@ export default Vue.extend({
       return indexedThermistors
         .map(({ id, val }) => ({ 
           sensor: val, 
-          text: val.name ? val.name : `Thermistor #${id}`,
+          text: val.name ? val.name : `Thermistor ${id}`,
            id 
         } as IndexedAnalogSensor));
     },
@@ -800,7 +799,7 @@ export default Vue.extend({
         assignIndexAndRemoveNull(this.model.tools);
       return indexedTools
         .map(({ id, val }) => ({ 
-          tool: val, id, name: val.name || id.toString() 
+          tool: val, id, name: val.name || `Tool ${id.toString()}` 
         } as IndexedTool));
     },
     hasMultipleScanningProbes(): boolean {
